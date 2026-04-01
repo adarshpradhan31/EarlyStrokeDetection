@@ -13,33 +13,24 @@ export default function AuthPage({ onLoginSuccess }: AuthPageProps) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    try {
-      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
-      const body = isLogin ? { email, password } : { name, email, password };
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-
-      const data = await res.json();
-      
-      if (!res.ok) {
-        throw new Error(data.error || 'Authentication failed');
-      }
-
-      onLoginSuccess(data.token, data.user);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
+    // Mock auth for Vercel static deploy
+    setTimeout(() => {
       setLoading(false);
-    }
+      const fakeToken = 'mock-jwt-token-' + Date.now();
+      const fakeUser = {
+        id: '1',
+        name: name || email.split('@')[0],
+        email
+      };
+      localStorage.setItem('token', fakeToken);
+      localStorage.setItem('user', JSON.stringify(fakeUser));
+      onLoginSuccess(fakeToken, fakeUser);
+    }, 1000);
   };
 
   return (
