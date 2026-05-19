@@ -10,6 +10,7 @@ const DEFAULT_ALERT_SETTINGS: AlertSettings = {
   systolicBPThreshold: 160,
   temperatureThreshold: 38.5,
   movementThreshold: 70,
+  spo2Threshold: 94,         // Alert when SpO2 < 94%
   riskScoreThreshold: 60,
   enableWebsiteAlerts: true,
   enableTelegramAlerts: true,
@@ -17,6 +18,7 @@ const DEFAULT_ALERT_SETTINGS: AlertSettings = {
   alertOnBP: true,
   alertOnTemp: true,
   alertOnMovement: true,
+  alertOnSpo2: true,
   alertOnRisk: true
 };
 
@@ -31,7 +33,6 @@ export const db = {
   saveSensorData: (data: SensorData) => {
     const logs = db.getSensorLogs();
     logs.push(data);
-    // Keep only last 100 logs
     if (logs.length > 100) logs.shift();
     localStorage.setItem(SENSOR_LOGS_KEY, JSON.stringify(logs));
   },
@@ -53,6 +54,8 @@ export const db = {
   },
   getAlertSettings: (): AlertSettings => {
     const data = localStorage.getItem(ALERT_SETTINGS_KEY);
-    return data ? JSON.parse(data) : DEFAULT_ALERT_SETTINGS;
+    const stored = data ? JSON.parse(data) : {};
+    // Merge with defaults so new fields are always present
+    return { ...DEFAULT_ALERT_SETTINGS, ...stored };
   }
 };

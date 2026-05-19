@@ -18,19 +18,30 @@ const handleSubmit = async (e: React.FormEvent) => {
     setError('');
     setLoading(true);
 
-    // Mock auth for Vercel static deploy
-    setTimeout(() => {
+    const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+    const body = isLogin ? { email, password } : { name, email, password };
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Authentication failed');
+      }
+
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      onLoginSuccess(data.token, data.user);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
       setLoading(false);
-      const fakeToken = 'mock-jwt-token-' + Date.now();
-      const fakeUser = {
-        id: '1',
-        name: name || email.split('@')[0],
-        email
-      };
-      localStorage.setItem('token', fakeToken);
-      localStorage.setItem('user', JSON.stringify(fakeUser));
-      onLoginSuccess(fakeToken, fakeUser);
-    }, 1000);
+    }
   };
 
   return (

@@ -18,6 +18,9 @@ export default defineConfig(({mode}) => {
       },
     },
     server: {
+      proxy: {
+        '/api': 'http://localhost:5000'
+      },
       hmr: process.env.DISABLE_HMR !== 'true',
     },
     build: {

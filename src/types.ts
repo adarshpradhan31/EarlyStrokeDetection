@@ -17,7 +17,14 @@ export interface SensorData {
   systolicBP: number;
   diastolicBP: number;
   temperature: number;
-  movement: number; // 0-100 scale of sudden movement
+  movement: number;     // 0-100 scale of sudden movement
+  spo2?: number;        // Blood oxygen saturation (%) — from MAX30102
+  accelX?: number;      // Accelerometer X axis (m/s²) — from MPU6050
+  accelY?: number;      // Accelerometer Y axis (m/s²) — from MPU6050
+  accelZ?: number;      // Accelerometer Z axis (m/s²) — from MPU6050
+  gyroX?: number;       // Gyroscope X axis (°/s) — from MPU6050
+  gyroY?: number;       // Gyroscope Y axis (°/s) — from MPU6050
+  gyroZ?: number;       // Gyroscope Z axis (°/s) — from MPU6050
 }
 
 export interface RiskPrediction {
@@ -32,6 +39,7 @@ export interface AlertSettings {
   systolicBPThreshold: number;
   temperatureThreshold: number;
   movementThreshold: number;
+  spo2Threshold: number;        // Alert when SpO2 drops below this (default 94%)
   riskScoreThreshold: number;
   enableWebsiteAlerts: boolean;
   enableTelegramAlerts: boolean;
@@ -39,5 +47,6 @@ export interface AlertSettings {
   alertOnBP: boolean;
   alertOnTemp: boolean;
   alertOnMovement: boolean;
+  alertOnSpo2: boolean;         // NEW
   alertOnRisk: boolean;
 }

@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>StrokeGuard AI | Early Stroke Detection</title>
+    <title>StrokeGuard AI | Early Stroke Detection</title>
+<script type="module" crossorigin src="/src/main.tsx"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index.css">
   </head>
   <body>
     <div id="root"></div>
@@ -13,8 +15,5 @@
         localStorage.setItem('last_error', event.error ? event.error.stack : event.message);
       });
     </script>
-    <script type="module" src="/src/main.tsx"></script>
-
   </body>
 </html>
-

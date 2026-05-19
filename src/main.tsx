@@ -3,12 +3,21 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
-class ErrorBoundary extends React.Component {
-  constructor(props) {
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error?: Error;
+}
+
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: undefined };
   }
-  static getDerivedStateFromError(error) {
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error };
   }
   render() {
@@ -16,8 +25,8 @@ class ErrorBoundary extends React.Component {
       return (
         <div style={{ padding: '20px', color: 'red', fontFamily: 'monospace' }}>
           <h2>Something went wrong.</h2>
-          <pre>{this.state.error.message}</pre>
-          <pre>{this.state.error.stack}</pre>
+          <pre>{this.state.error?.message}</pre>
+          <pre>{this.state.error?.stack}</pre>
         </div>
       );
     }
