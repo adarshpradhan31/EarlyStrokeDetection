@@ -52,7 +52,7 @@ mpu = mpu6050(0x68)
 
 print("🔧 Initialising MAX30102 at I²C address 0x57 ...")
 m = max30102.MAX30102()
-m.setup_sensor()   # default: 100 Hz sample rate, 16-bit ADC
+m.setup()   # default: 100 Hz sample rate, 16-bit ADC
 
 # Circular buffers for IR and RED samples
 ir_buffer  = deque(maxlen=BUFFER_SIZE)
