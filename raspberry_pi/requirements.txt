@@ -1,5 +1,5 @@
 # StrokeGuard AI — Raspberry Pi Dependencies
 smbus2>=0.4.3
 mpu6050-raspberrypi>=1.2.0
-max30102>=0.1.0
 requests>=2.28.0
+numpy
