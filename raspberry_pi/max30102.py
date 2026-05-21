@@ -57,14 +57,14 @@ class MAX30102():
         """
         Shutdown the device.
         """
-        self.bus.write_i2c_block_data(self.address, REG_MODE_CONFIG, [0x80])
+        self.bus.write_byte_data(self.address, REG_MODE_CONFIG, 0x80)
 
     def reset(self):
         """
         Reset the device, this will clear all settings,
         so after running this, run setup() again.
         """
-        self.bus.write_i2c_block_data(self.address, REG_MODE_CONFIG, [0x40])
+        self.bus.write_byte_data(self.address, REG_MODE_CONFIG, 0x40)
 
     def setup(self, led_mode=0x03):
         """
@@ -73,32 +73,44 @@ class MAX30102():
         # INTR setting
         # 0xc0 : A_FULL_EN and PPG_RDY_EN = Interrupt will be triggered when
         # fifo almost full & new fifo data ready
-        self.bus.write_i2c_block_data(self.address, REG_INTR_ENABLE_1, [0xc0])
-        self.bus.write_i2c_block_data(self.address, REG_INTR_ENABLE_2, [0x00])
+        self.bus.write_byte_data(self.address, REG_INTR_ENABLE_1, 0xc0)
+        sleep(0.02)
+        self.bus.write_byte_data(self.address, REG_INTR_ENABLE_2, 0x00)
+        sleep(0.02)
 
         # FIFO_WR_PTR[4:0]
-        self.bus.write_i2c_block_data(self.address, REG_FIFO_WR_PTR, [0x00])
+        self.bus.write_byte_data(self.address, REG_FIFO_WR_PTR, 0x00)
+        sleep(0.02)
         # OVF_COUNTER[4:0]
-        self.bus.write_i2c_block_data(self.address, REG_OVF_COUNTER, [0x00])
+        self.bus.write_byte_data(self.address, REG_OVF_COUNTER, 0x00)
+        sleep(0.02)
         # FIFO_RD_PTR[4:0]
-        self.bus.write_i2c_block_data(self.address, REG_FIFO_RD_PTR, [0x00])
+        self.bus.write_byte_data(self.address, REG_FIFO_RD_PTR, 0x00)
+        sleep(0.02)
 
         # 0b 0100 1111
         # sample avg = 4, fifo rollover = false, fifo almost full = 17
-        self.bus.write_i2c_block_data(self.address, REG_FIFO_CONFIG, [0x4f])
+        self.bus.write_byte_data(self.address, REG_FIFO_CONFIG, 0x4f)
+        sleep(0.02)
 
         # 0x02 for read-only, 0x03 for SpO2 mode, 0x07 multimode LED
-        self.bus.write_i2c_block_data(self.address, REG_MODE_CONFIG, [led_mode])
+        self.bus.write_byte_data(self.address, REG_MODE_CONFIG, led_mode)
+        sleep(0.05)  # Allow mode transition to settle
+
         # 0b 0010 0111
         # SPO2_ADC range = 4096nA, SPO2 sample rate = 100Hz, LED pulse-width = 411uS
-        self.bus.write_i2c_block_data(self.address, REG_SPO2_CONFIG, [0x27])
+        self.bus.write_byte_data(self.address, REG_SPO2_CONFIG, 0x27)
+        sleep(0.02)
 
         # choose value for ~7mA for LED1
-        self.bus.write_i2c_block_data(self.address, REG_LED1_PA, [0x24])
+        self.bus.write_byte_data(self.address, REG_LED1_PA, 0x24)
+        sleep(0.02)
         # choose value for ~7mA for LED2
-        self.bus.write_i2c_block_data(self.address, REG_LED2_PA, [0x24])
+        self.bus.write_byte_data(self.address, REG_LED2_PA, 0x24)
+        sleep(0.02)
         # choose value fro ~25mA for Pilot LED
-        self.bus.write_i2c_block_data(self.address, REG_PILOT_PA, [0x7f])
+        self.bus.write_byte_data(self.address, REG_PILOT_PA, 0x7f)
+        sleep(0.02)
 
     # this won't validate the arguments!
     # use when changing the values from default
