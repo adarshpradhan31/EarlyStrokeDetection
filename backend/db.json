@@ -6,6 +6,27 @@
       "email": "adu@gmail.com",
       "password": "$2b$10$ocfO1I88jji1U4jsGmGl2.6grKtb.dFoo52M7aXkj3D3CUFzx1Tc.",
       "createdAt": "2026-04-01T10:04:32.448Z"
+    },
+    {
+      "id": "1779370342643",
+      "name": "Holy Padre",
+      "email": "adipadi@gmail.com",
+      "password": "$2b$10$0ali1TlyXG6ha7up43/0Ae0fXXTsKePZEKSLxb.oPiUq28d1irXfS",
+      "createdAt": "2026-05-21T13:32:22.643Z"
+    },
+    {
+      "id": "1779734495196",
+      "name": "Test User",
+      "email": "testuser_1779734495087@example.com",
+      "password": "$2b$10$8ALRrm7HcwTqAhZka.SDY.HTSnPCvjgZKTB4Vmp6l0rM5Zw2YJI4u",
+      "createdAt": "2026-05-25T18:41:35.196Z"
+    },
+    {
+      "id": "1779734584254",
+      "name": "Holy Padre",
+      "email": "adipadi1@gmail.com",
+      "password": "$2b$10$NE8uutIzXDQzSV7rlJOAHO7Wg3sBRqg4x.YcYEQAeD6ynkrefo/s6",
+      "createdAt": "2026-05-25T18:43:04.254Z"
     }
   ]
 }

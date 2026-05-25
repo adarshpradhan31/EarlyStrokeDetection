@@ -139,7 +139,7 @@ def find_peaks_above_min_height(x, size, min_height, max_num):
     Find all peaks above MIN_HEIGHT
     """
 
-    i = 0
+    i = 1
     n_peaks = 0
     ir_valley_locs = []  # [0 for i in range(max_num)]
     while i < size - 1:

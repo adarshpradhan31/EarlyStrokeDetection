@@ -34,6 +34,10 @@ POLL_INTERVAL = 1.0   # seconds between POSTs
 # MAX30102: buffer size for HR/SpO2 calculation (needs ≥ 100 samples)
 BUFFER_SIZE = 100
 
+# Thresholds for finger detection to prevent false readings
+FINGER_PRESENT_THRESHOLD = 50000  # avg of last 5 samples must be above this for valid touch
+FINGER_ABSENT_THRESHOLD  = 30000  # if IR drops below this, finger is removed
+
 # ── Import sensor libraries ──────────────────────────────────────
 try:
     from mpu6050 import mpu6050
@@ -68,14 +72,20 @@ def compute_movement(accel: dict) -> float:
 
 def read_max30102() -> tuple[float, float]:
     """
-    Drain MAX30102 FIFO, fill buffers, and return (heart_rate, spo2).
-    Returns (0, 0) until enough samples are collected.
+    Drain MAX30102 FIFO, fill buffers with valid finger samples, and return (heart_rate, spo2).
+    Returns (0, 0) if contact is lost or buffers are still filling.
     """
     n = m.get_data_present()
     for _ in range(n):
         red, ir = m.read_fifo()
-        red_buffer.append(red)
-        ir_buffer.append(ir)
+        if ir > FINGER_ABSENT_THRESHOLD:
+            red_buffer.append(red)
+            ir_buffer.append(ir)
+        else:
+            # Finger has been removed or contact is very poor — clear buffers immediately
+            # to prevent mixing invalid samples with future valid samples.
+            red_buffer.clear()
+            ir_buffer.clear()
 
     if len(ir_buffer) < BUFFER_SIZE:
         return 0.0, 0.0
@@ -86,6 +96,19 @@ def read_max30102() -> tuple[float, float]:
     hr   = round(float(hr_val),   1) if hr_valid   else 0.0
     spo2 = round(float(spo2_val), 1) if spo2_valid else 0.0
     return hr, spo2
+
+
+def is_finger_present() -> bool:
+    """
+    Checks if a finger is currently placed on the MAX30102 sensor.
+    Uses a moving average of the last 5 samples to avoid noise spikes.
+    """
+    if len(ir_buffer) < 5:
+        return False
+    # Check the average of the last 5 samples to avoid noise spikes
+    last_samples = list(ir_buffer)[-5:]
+    avg_ir = sum(last_samples) / len(last_samples)
+    return avg_ir > FINGER_PRESENT_THRESHOLD
 
 
 # ── Main loop ────────────────────────────────────────────────────
@@ -100,17 +123,32 @@ def main():
     while True:
         loop_start = time.time()
         try:
-            # ── MAX30102 ─────────────────────────────────────────
-            new_hr, new_spo2 = read_max30102()
-            if new_hr > 30:   hr   = new_hr     # sanity: discard implausible values
-            if new_spo2 > 50: spo2 = new_spo2
-
             # ── MPU6050 ──────────────────────────────────────────
             accel = mpu.get_accel_data()   # {'x': float, 'y': float, 'z': float}
             gyro  = mpu.get_gyro_data()    # {'x': float, 'y': float, 'z': float}
             temp  = mpu.get_temp()         # °C (MPU6050 internal die temp)
 
             movement = compute_movement(accel)
+
+            # ── MAX30102 ─────────────────────────────────────────
+            new_hr, new_spo2 = read_max30102()
+            
+            if is_finger_present():
+                # Motion artifact prevention: PPG values are highly unstable during movement.
+                # If movement is high (> 15.0), ignore the new readings to prevent false spikes.
+                if movement > 15.0:
+                    print(f"  ⚠ High movement detected ({movement}). Holding last stable readings to prevent false alerts.")
+                else:
+                    if new_hr > 30 and new_hr < 220:   # valid physiological range
+                        hr   = new_hr
+                    if new_spo2 > 50 and new_spo2 <= 100:
+                        spo2 = new_spo2
+            else:
+                # No finger detected: reset to 0.0 immediately
+                hr = 0.0
+                spo2 = 0.0
+                ir_buffer.clear()
+                red_buffer.clear()
 
             payload = {
                 "heartRate":   hr,
