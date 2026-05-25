@@ -48,12 +48,14 @@ export default function SensorDashboard({ onAlert }: Props) {
     setCurrent(newSensor);
 
     const settings = db.getAlertSettings();
+    const sensorInUse = newSensor.heartRate > 0;
+
     const alerts = [
-      settings.alertOnHeartRate && newSensor.heartRate > settings.heartRateThreshold,
-      settings.alertOnBP && newSensor.systolicBP > settings.systolicBPThreshold,
+      settings.alertOnHeartRate && sensorInUse && newSensor.heartRate > settings.heartRateThreshold,
+      settings.alertOnBP && sensorInUse && newSensor.systolicBP > settings.systolicBPThreshold,
       settings.alertOnTemp && newSensor.temperature > settings.temperatureThreshold,
       settings.alertOnMovement && newSensor.movement > settings.movementThreshold,
-      settings.alertOnSpo2 && (newSensor.spo2 ?? 100) < settings.spo2Threshold,
+      settings.alertOnSpo2 && sensorInUse && (newSensor.spo2 ?? 100) < settings.spo2Threshold,
     ];
     if (alerts.some(Boolean)) onAlertRef.current(newSensor);
   }, []);
@@ -83,6 +85,7 @@ export default function SensorDashboard({ onAlert }: Props) {
   const isPiMode = connectionMode === 'pi';
   const hasSpo2 = current.spo2 !== undefined;
   const hasImu = current.gyroX !== undefined;
+  const sensorInUse = current.heartRate > 0;
 
   return (
     <div className="space-y-5">
@@ -95,30 +98,40 @@ export default function SensorDashboard({ onAlert }: Props) {
         <ConnectionBadge mode={connectionMode} />
       </div>
 
+      {/* ── Active Sensor Alert Banner ───────────────────────── */}
+      {isPiMode && !sensorInUse && (
+        <div className="flex items-center gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-sm font-medium shadow-sm animate-pulse">
+          <AlertTriangle size={18} className="text-amber-600 flex-shrink-0" />
+          <div>
+            <span className="font-bold">Pulse Sensor Inactive:</span> Please place and hold your finger steadily on the heart rate & SpO2 sensor (MAX30102) to start monitoring and enable AI stroke risk analysis.
+          </div>
+        </div>
+      )}
+
       {/* ── Vital Stats Grid ─────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <StatCard
           icon={<Heart size={18} className="text-red-500" />}
           label="Heart Rate"
-          value={`${Math.round(current.heartRate)}`}
+          value={sensorInUse ? `${Math.round(current.heartRate)}` : '--'}
           unit="BPM"
-          status={current.heartRate > 100 ? 'warning' : 'normal'}
+          status={sensorInUse && current.heartRate > 100 ? 'warning' : 'normal'}
         />
         {hasSpo2 && (
           <StatCard
             icon={<Droplets size={18} className="text-sky-500" />}
             label="SpO2"
-            value={`${(current.spo2 ?? 0).toFixed(1)}`}
+            value={sensorInUse ? `${(current.spo2 ?? 0).toFixed(1)}` : '--'}
             unit="%"
-            status={(current.spo2 ?? 100) < 94 ? 'warning' : 'normal'}
+            status={sensorInUse && (current.spo2 ?? 100) < 94 ? 'warning' : 'normal'}
           />
         )}
         <StatCard
           icon={<Activity size={18} className="text-indigo-500" />}
           label="BP"
-          value={`${Math.round(current.systolicBP)}/${Math.round(current.diastolicBP)}`}
+          value={sensorInUse ? `${Math.round(current.systolicBP)}/${Math.round(current.diastolicBP)}` : '--'}
           unit="mmHg"
-          status={current.systolicBP > 140 ? 'warning' : 'normal'}
+          status={sensorInUse && current.systolicBP > 140 ? 'warning' : 'normal'}
         />
         <StatCard
           icon={<Thermometer size={18} className="text-orange-500" />}
