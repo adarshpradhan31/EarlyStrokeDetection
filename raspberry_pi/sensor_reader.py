@@ -35,8 +35,8 @@ POLL_INTERVAL = 1.0   # seconds between POSTs
 BUFFER_SIZE = 100
 
 # Thresholds for finger detection to prevent false readings
-FINGER_PRESENT_THRESHOLD = 50000  # avg of last 5 samples must be above this for valid touch
-FINGER_ABSENT_THRESHOLD  = 30000  # if IR drops below this, finger is removed
+FINGER_PRESENT_THRESHOLD = 30000  # avg of last 5 samples must be above this for valid touch
+FINGER_ABSENT_THRESHOLD  = 20000  # if IR drops below this, finger is removed
 
 # ── Import sensor libraries ──────────────────────────────────────
 try:
@@ -101,13 +101,14 @@ def read_max30102() -> tuple[float, float]:
 def is_finger_present() -> bool:
     """
     Checks if a finger is currently placed on the MAX30102 sensor.
-    Uses a moving average of the last 5 samples to avoid noise spikes.
+    Uses a moving average of the last 5 samples (or all available if < 5) to avoid noise spikes.
     """
-    if len(ir_buffer) < 5:
+    if len(ir_buffer) == 0:
         return False
-    # Check the average of the last 5 samples to avoid noise spikes
-    last_samples = list(ir_buffer)[-5:]
-    avg_ir = sum(last_samples) / len(last_samples)
+    # Check the average of the last 5 samples (or all available) to avoid noise spikes
+    num_samples = min(len(ir_buffer), 5)
+    last_samples = list(ir_buffer)[-num_samples:]
+    avg_ir = sum(last_samples) / num_samples
     return avg_ir > FINGER_PRESENT_THRESHOLD
 
 
@@ -144,6 +145,13 @@ def main():
                     if new_spo2 > 50 and new_spo2 <= 100:
                         spo2 = new_spo2
             else:
+                # Print diagnostic info if we have some readings but they are below threshold
+                if len(ir_buffer) > 0:
+                    num_samples = min(len(ir_buffer), 5)
+                    last_samples = list(ir_buffer)[-num_samples:]
+                    avg_ir = sum(last_samples) / num_samples
+                    print(f"  ⚠ Finger detected but signal too weak. Avg IR: {avg_ir:.0f} (Need > {FINGER_PRESENT_THRESHOLD})")
+
                 # No finger detected: reset to 0.0 immediately
                 hr = 0.0
                 spo2 = 0.0

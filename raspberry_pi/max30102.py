@@ -102,11 +102,11 @@ class MAX30102():
         self.bus.write_byte_data(self.address, REG_SPO2_CONFIG, 0x27)
         sleep(0.02)
 
-        # choose value for ~7mA for LED1
-        self.bus.write_byte_data(self.address, REG_LED1_PA, 0x24)
+        # choose value for ~15.8mA for LED1 (RED) for stronger signal / better SNR
+        self.bus.write_byte_data(self.address, REG_LED1_PA, 0x4f)
         sleep(0.02)
-        # choose value for ~7mA for LED2
-        self.bus.write_byte_data(self.address, REG_LED2_PA, 0x24)
+        # choose value for ~15.8mA for LED2 (IR) for stronger signal / better SNR
+        self.bus.write_byte_data(self.address, REG_LED2_PA, 0x4f)
         sleep(0.02)
         # choose value fro ~25mA for Pilot LED
         self.bus.write_byte_data(self.address, REG_PILOT_PA, 0x7f)
