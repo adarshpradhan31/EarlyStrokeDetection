@@ -40,8 +40,10 @@ RAW_BUFFER_SIZE = 400
 # Thresholds for finger detection
 # These are checked against a small ROLLING window of the last 10 raw IR samples,
 # NOT the accumulation buffer — so they are independent of buffer fill progress.
-FINGER_PRESENT_THRESHOLD = 30000   # IR avg > this → finger is present
-FINGER_ABSENT_THRESHOLD  = 20000   # IR avg < this → finger has been removed
+# With LED at 3.2mA, a resting IR (no finger) is ~2000-3000, with finger ~20,000-100,000.
+FINGER_PRESENT_THRESHOLD = 5000    # IR avg > this → finger is present
+FINGER_ABSENT_THRESHOLD  = 3000    # IR avg < this → finger has been removed
+SATURATION_THRESHOLD     = 260000  # IR avg > this → ADC saturated (signal clipped, useless)
 
 # Hysteresis state: start as absent
 _finger_state = False
@@ -106,12 +108,18 @@ def read_max30102() -> tuple[tuple[float, float], str]:
 
     if not _finger_state and avg_ir > FINGER_PRESENT_THRESHOLD:
         _finger_state = True
-        print(f"  👆 Finger detected! Avg IR={avg_ir:.0f}. Accumulating samples...")
+        print(f"  \U0001f446 Finger detected! Avg IR={avg_ir:.0f}. Accumulating samples...")
     elif _finger_state and avg_ir < FINGER_ABSENT_THRESHOLD:
         _finger_state = False
         ir_buffer.clear()
         red_buffer.clear()
-        print(f"  ✋ Finger removed. Avg IR={avg_ir:.0f}. Buffers cleared.")
+        print(f"  \u270b Finger removed. Avg IR={avg_ir:.0f}. Buffers cleared.")
+
+    # ── Saturation check ──────────────────────────────────────────
+    if avg_ir >= SATURATION_THRESHOLD:
+        ir_buffer.clear()
+        red_buffer.clear()
+        return (0.0, 0.0), f"ADC SATURATED (IR={avg_ir:.0f}) — increase LED_PA in max30102.py or reduce current"
 
     if not _finger_state:
         return (0.0, 0.0), f"No finger (Avg IR={avg_ir:.0f}, need >{FINGER_PRESENT_THRESHOLD})"

@@ -102,13 +102,16 @@ class MAX30102():
         self.bus.write_byte_data(self.address, REG_SPO2_CONFIG, 0x27)
         sleep(0.02)
 
-        # choose value for ~15.8mA for LED1 (RED) for stronger signal / better SNR
-        self.bus.write_byte_data(self.address, REG_LED1_PA, 0x4f)
+        # LED current formula: I = LED_PA * 0.2mA
+        # At 15.8mA (0x4f) the ADC saturates at 262143 (max 18-bit) — hrcalc fails on flat signal.
+        # Reducing to 3.2mA (0x10) brings IR into ~50k-150k range for proper peak detection.
+        # choose ~3.2mA for LED1 (RED)
+        self.bus.write_byte_data(self.address, REG_LED1_PA, 0x10)
         sleep(0.02)
-        # choose value for ~15.8mA for LED2 (IR) for stronger signal / better SNR
-        self.bus.write_byte_data(self.address, REG_LED2_PA, 0x4f)
+        # choose ~3.2mA for LED2 (IR)
+        self.bus.write_byte_data(self.address, REG_LED2_PA, 0x10)
         sleep(0.02)
-        # choose value fro ~25mA for Pilot LED
+        # choose value for ~25mA for Pilot LED
         self.bus.write_byte_data(self.address, REG_PILOT_PA, 0x7f)
         sleep(0.02)
 
