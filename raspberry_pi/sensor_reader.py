@@ -176,6 +176,9 @@ def main():
                 hr = 0.0
                 spo2 = 0.0
 
+            # Compute current avg IR for server-side logging
+            avg_ir_now = round(sum(_ir_window) / len(_ir_window), 0) if _ir_window else 0
+
             payload = {
                 "heartRate":   hr,
                 "spo2":        spo2,
@@ -192,6 +195,10 @@ def main():
                 "systolicBP":  0,
                 "diastolicBP": 0,
                 "timestamp":   int(time.time() * 1000),
+                # Diagnostic fields — help debug sensor state from the server log
+                "_avgIR":      avg_ir_now,
+                "_bufFill":    len(ir_buffer),
+                "_diag":       diag,
             }
 
             # ── POST to backend ───────────────────────────────────

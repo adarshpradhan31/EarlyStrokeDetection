@@ -46,9 +46,13 @@ app.post('/api/sensor-data', (req, res) => {
   // Broadcast to all connected browser clients
   io.emit('sensor_update', latestSensorData);
 
+  // Log diagnostic info from Pi to help debug SpO2 issues
+  const diag    = data._diag    ?? 'n/a';
+  const avgIR   = data._avgIR   ?? '?';
+  const bufFill = data._bufFill ?? '?';
   console.log(
-    `[Sensor] HR:${data.heartRate} SpO2:${data.spo2}% ` +
-    `GyroX:${data.gyroX} Mov:${data.movement}`
+    `[Sensor] HR:${data.heartRate} SpO2:${data.spo2}% Mov:${data.movement} ` +
+    `| IR:${avgIR} Buf:${bufFill}/400 | ${diag}`
   );
   res.json({ ok: true, clients: io.engine.clientsCount });
 });
