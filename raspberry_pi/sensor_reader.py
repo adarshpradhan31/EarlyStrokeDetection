@@ -32,13 +32,19 @@ BACKEND_URL  = f"http://{BACKEND_IP}:{BACKEND_PORT}/api/sensor-data"
 POLL_INTERVAL = 1.0   # seconds between POSTs
 
 # MAX30102 configuration:
-# Sensor sample rate is 100Hz. The heart rate algorithm expects a 100-sample buffer 
+# Sensor sample rate is 100Hz. The heart rate algorithm expects a 100-sample buffer
 # representing 4.0 seconds of history at 25Hz.
-# We accumulate 400 samples at 100Hz (4.0s of raw data) and downsample by taking every 4th sample.
+# We accumulate 400 samples at 100Hz (4.0s of raw data) and downsample to 100 samples at 25Hz.
 RAW_BUFFER_SIZE = 400
 
-# Thresholds for finger detection to prevent false readings
-FINGER_PRESENT_THRESHOLD = 30000  # avg of last 5 samples must be above this for valid touch
+# Thresholds for finger detection
+# These are checked against a small ROLLING window of the last 10 raw IR samples,
+# NOT the accumulation buffer — so they are independent of buffer fill progress.
+FINGER_PRESENT_THRESHOLD = 30000   # IR avg > this → finger is present
+FINGER_ABSENT_THRESHOLD  = 20000   # IR avg < this → finger has been removed
+
+# Hysteresis state: start as absent
+_finger_state = False
 
 # ── Import sensor libraries ──────────────────────────────────────
 try:
@@ -60,9 +66,12 @@ print("🔧 Initialising MAX30102 at I²C address 0x57 ...")
 m = max30102.MAX30102()
 m.setup()   # default: 100 Hz sample rate, 16-bit ADC
 
-# Circular buffers for IR and RED samples at 100Hz
+# Circular buffers for IR and RED samples at 100Hz (accumulation for hrcalc)
 ir_buffer  = deque(maxlen=RAW_BUFFER_SIZE)
 red_buffer = deque(maxlen=RAW_BUFFER_SIZE)
+
+# Small rolling window used ONLY for finger detection — always filled, never cleared by main loop
+_ir_window = deque(maxlen=10)
 
 # ── Helpers ──────────────────────────────────────────────────────
 def compute_movement(accel: dict) -> float:
@@ -72,52 +81,70 @@ def compute_movement(accel: dict) -> float:
     return round(max(0.0, min(100.0, abs(magnitude - 9.8) * 12)), 1)
 
 
-def read_max30102() -> tuple[float, float]:
+def read_max30102() -> tuple[tuple[float, float], str]:
     """
-    Drain MAX30102 FIFO, fill buffers with raw samples, and return (heart_rate, spo2).
-    Returns (0, 0) if buffers are still filling. Downsamples from 100Hz to 25Hz.
+    Drain MAX30102 FIFO into the accumulation buffers.
+    Returns ((hr, spo2), reason_string).
+    reason_string is used for diagnostic output.
+    Downsamples from 100Hz → 25Hz before calling hrcalc.
     """
+    global _finger_state
+
     n = m.get_data_present()
     for _ in range(n):
         red, ir = m.read_fifo()
-        red_buffer.append(red)
-        ir_buffer.append(ir)
+        _ir_window.append(ir)    # always update the finger-detection window
+        if _finger_state:        # only accumulate when finger is confirmed present
+            red_buffer.append(red)
+            ir_buffer.append(ir)
 
-    if len(ir_buffer) < RAW_BUFFER_SIZE:
-        return 0.0, 0.0
+    # ── Finger detection (hysteresis using _ir_window) ────────────
+    if len(_ir_window) == 0:
+        return (0.0, 0.0), "No FIFO data yet"
+
+    avg_ir = sum(_ir_window) / len(_ir_window)
+
+    if not _finger_state and avg_ir > FINGER_PRESENT_THRESHOLD:
+        _finger_state = True
+        print(f"  👆 Finger detected! Avg IR={avg_ir:.0f}. Accumulating samples...")
+    elif _finger_state and avg_ir < FINGER_ABSENT_THRESHOLD:
+        _finger_state = False
+        ir_buffer.clear()
+        red_buffer.clear()
+        print(f"  ✋ Finger removed. Avg IR={avg_ir:.0f}. Buffers cleared.")
+
+    if not _finger_state:
+        return (0.0, 0.0), f"No finger (Avg IR={avg_ir:.0f}, need >{FINGER_PRESENT_THRESHOLD})"
+
+    buf_len = len(ir_buffer)
+    if buf_len < RAW_BUFFER_SIZE:
+        pct = int(buf_len * 100 / RAW_BUFFER_SIZE)
+        return (0.0, 0.0), f"Filling buffer {buf_len}/{RAW_BUFFER_SIZE} ({pct}%)  Avg IR={avg_ir:.0f}"
 
     # Downsample from 100Hz to 25Hz by taking every 4th sample
-    ir_25hz = [list(ir_buffer)[i] for i in range(0, RAW_BUFFER_SIZE, 4)]
-    red_25hz = [list(red_buffer)[i] for i in range(0, RAW_BUFFER_SIZE, 4)]
+    ir_list  = list(ir_buffer)
+    red_list = list(red_buffer)
+    ir_25hz  = [ir_list[i]  for i in range(0, RAW_BUFFER_SIZE, 4)]
+    red_25hz = [red_list[i] for i in range(0, RAW_BUFFER_SIZE, 4)]
 
-    hr_val, hr_valid, spo2_val, spo2_valid = hrcalc.calc_hr_and_spo2(
-        ir_25hz, red_25hz
-    )
+    hr_val, hr_valid, spo2_val, spo2_valid = hrcalc.calc_hr_and_spo2(ir_25hz, red_25hz)
     hr   = round(float(hr_val),   1) if hr_valid   else 0.0
     spo2 = round(float(spo2_val), 1) if spo2_valid else 0.0
-    return hr, spo2
 
-
-def is_finger_present() -> bool:
-    """
-    Checks if a finger is currently placed on the MAX30102 sensor.
-    Uses a moving average of the last 5 samples (or all available if < 5) to avoid noise spikes.
-    """
-    if len(ir_buffer) == 0:
-        return False
-    # Check the average of the last 5 samples (or all available) to avoid noise spikes
-    num_samples = min(len(ir_buffer), 5)
-    last_samples = list(ir_buffer)[-num_samples:]
-    avg_ir = sum(last_samples) / num_samples
-    return avg_ir > FINGER_PRESENT_THRESHOLD
+    reasons = []
+    if not hr_valid:   reasons.append("HR invalid (too few peaks)")
+    if not spo2_valid: reasons.append("SpO2 ratio out of range")
+    reason = "; ".join(reasons) if reasons else "OK"
+    return (hr, spo2), reason
 
 
 # ── Main loop ────────────────────────────────────────────────────
 def main():
     print(f"\n✅  StrokeGuard Sensor Reader started")
     print(f"   → Posting to: {BACKEND_URL}")
-    print(f"   → Interval:   {POLL_INTERVAL}s\n")
-    print("   Collecting MAX30102 samples (needs ~400 before HR/SpO2 are valid)...\n")
+    print(f"   → Interval:   {POLL_INTERVAL}s")
+    print(f"   MAX30102 needs {RAW_BUFFER_SIZE} samples (~{RAW_BUFFER_SIZE//100}s) before HR/SpO2 are valid")
+    print("   Place finger firmly and flat on the sensor. Diagnostic output enabled.\n")
 
     hr, spo2 = 0.0, 0.0   # carry last valid reading between iterations
 
@@ -132,31 +159,22 @@ def main():
             movement = compute_movement(accel)
 
             # ── MAX30102 ─────────────────────────────────────────
-            new_hr, new_spo2 = read_max30102()
-            
-            if is_finger_present():
+            (new_hr, new_spo2), diag = read_max30102()
+
+            if _finger_state:
                 # Motion artifact prevention: PPG values are highly unstable during movement.
                 # If movement is high (> 15.0), ignore the new readings to prevent false spikes.
                 if movement > 15.0:
-                    print(f"  ⚠ High movement detected ({movement}). Holding last stable readings to prevent false alerts.")
+                    print(f"  ⚠ High movement ({movement:.1f}). Holding last stable readings.")
                 else:
                     if new_hr > 30 and new_hr < 220:   # valid physiological range
                         hr   = new_hr
                     if new_spo2 > 50 and new_spo2 <= 100:
                         spo2 = new_spo2
             else:
-                # Print diagnostic info if we have some readings but they are below threshold
-                if len(ir_buffer) > 0:
-                    num_samples = min(len(ir_buffer), 5)
-                    last_samples = list(ir_buffer)[-num_samples:]
-                    avg_ir = sum(last_samples) / num_samples
-                    print(f"  ⚠ Finger detected but signal too weak. Avg IR: {avg_ir:.0f} (Need > {FINGER_PRESENT_THRESHOLD})")
-
-                # No finger detected: reset to 0.0 immediately
+                # Finger absent — reset displayed values
                 hr = 0.0
                 spo2 = 0.0
-                ir_buffer.clear()
-                red_buffer.clear()
 
             payload = {
                 "heartRate":   hr,
@@ -184,7 +202,7 @@ def main():
                 f"[{time.strftime('%H:%M:%S')}] {status}  "
                 f"HR:{hr:5.1f} BPM  SpO2:{spo2:5.1f}%  "
                 f"Temp:{temp:5.2f}°C  Mov:{movement:5.1f}  "
-                f"Gyro({gyro['x']:+.1f}, {gyro['y']:+.1f}, {gyro['z']:+.1f}) °/s"
+                f"| {diag}"
             )
 
         except requests.exceptions.ConnectionError:
