@@ -31,12 +31,14 @@ BACKEND_PORT = os.environ.get("BACKEND_PORT", "5000")
 BACKEND_URL  = f"http://{BACKEND_IP}:{BACKEND_PORT}/api/sensor-data"
 POLL_INTERVAL = 1.0   # seconds between POSTs
 
-# MAX30102: buffer size for HR/SpO2 calculation (needs ≥ 100 samples)
-BUFFER_SIZE = 100
+# MAX30102 configuration:
+# Sensor sample rate is 100Hz. The heart rate algorithm expects a 100-sample buffer 
+# representing 4.0 seconds of history at 25Hz.
+# We accumulate 400 samples at 100Hz (4.0s of raw data) and downsample by taking every 4th sample.
+RAW_BUFFER_SIZE = 400
 
 # Thresholds for finger detection to prevent false readings
 FINGER_PRESENT_THRESHOLD = 30000  # avg of last 5 samples must be above this for valid touch
-FINGER_ABSENT_THRESHOLD  = 20000  # if IR drops below this, finger is removed
 
 # ── Import sensor libraries ──────────────────────────────────────
 try:
@@ -58,9 +60,9 @@ print("🔧 Initialising MAX30102 at I²C address 0x57 ...")
 m = max30102.MAX30102()
 m.setup()   # default: 100 Hz sample rate, 16-bit ADC
 
-# Circular buffers for IR and RED samples
-ir_buffer  = deque(maxlen=BUFFER_SIZE)
-red_buffer = deque(maxlen=BUFFER_SIZE)
+# Circular buffers for IR and RED samples at 100Hz
+ir_buffer  = deque(maxlen=RAW_BUFFER_SIZE)
+red_buffer = deque(maxlen=RAW_BUFFER_SIZE)
 
 # ── Helpers ──────────────────────────────────────────────────────
 def compute_movement(accel: dict) -> float:
@@ -72,26 +74,24 @@ def compute_movement(accel: dict) -> float:
 
 def read_max30102() -> tuple[float, float]:
     """
-    Drain MAX30102 FIFO, fill buffers with valid finger samples, and return (heart_rate, spo2).
-    Returns (0, 0) if contact is lost or buffers are still filling.
+    Drain MAX30102 FIFO, fill buffers with raw samples, and return (heart_rate, spo2).
+    Returns (0, 0) if buffers are still filling. Downsamples from 100Hz to 25Hz.
     """
     n = m.get_data_present()
     for _ in range(n):
         red, ir = m.read_fifo()
-        if ir > FINGER_ABSENT_THRESHOLD:
-            red_buffer.append(red)
-            ir_buffer.append(ir)
-        else:
-            # Finger has been removed or contact is very poor — clear buffers immediately
-            # to prevent mixing invalid samples with future valid samples.
-            red_buffer.clear()
-            ir_buffer.clear()
+        red_buffer.append(red)
+        ir_buffer.append(ir)
 
-    if len(ir_buffer) < BUFFER_SIZE:
+    if len(ir_buffer) < RAW_BUFFER_SIZE:
         return 0.0, 0.0
 
+    # Downsample from 100Hz to 25Hz by taking every 4th sample
+    ir_25hz = [list(ir_buffer)[i] for i in range(0, RAW_BUFFER_SIZE, 4)]
+    red_25hz = [list(red_buffer)[i] for i in range(0, RAW_BUFFER_SIZE, 4)]
+
     hr_val, hr_valid, spo2_val, spo2_valid = hrcalc.calc_hr_and_spo2(
-        list(ir_buffer), list(red_buffer)
+        ir_25hz, red_25hz
     )
     hr   = round(float(hr_val),   1) if hr_valid   else 0.0
     spo2 = round(float(spo2_val), 1) if spo2_valid else 0.0
@@ -117,7 +117,7 @@ def main():
     print(f"\n✅  StrokeGuard Sensor Reader started")
     print(f"   → Posting to: {BACKEND_URL}")
     print(f"   → Interval:   {POLL_INTERVAL}s\n")
-    print("   Collecting MAX30102 samples (needs ~100 before HR/SpO2 are valid)...\n")
+    print("   Collecting MAX30102 samples (needs ~400 before HR/SpO2 are valid)...\n")
 
     hr, spo2 = 0.0, 0.0   # carry last valid reading between iterations
 
