@@ -26,10 +26,41 @@ import requests
 from collections import deque
 
 # ── Configuration ────────────────────────────────────────────────
-BACKEND_IP   = os.environ.get("BACKEND_IP", "YOUR_PC_IP_HERE")  # e.g. 192.168.1.100
 BACKEND_PORT = os.environ.get("BACKEND_PORT", "5000")
-BACKEND_URL  = f"http://{BACKEND_IP}:{BACKEND_PORT}/api/sensor-data"
+
+def _find_backend_ip() -> str:
+    """
+    Resolves the backend IP in this order:
+      1. BACKEND_IP environment variable (explicit override)
+      2. Auto-detect: try the default gateway (PC on same Wi-Fi)
+      3. Fallback: localhost (for testing on the same machine)
+    """
+    env_ip = os.environ.get("BACKEND_IP", "")
+    if env_ip and env_ip != "YOUR_PC_IP_HERE":
+        return env_ip
+    # Try to detect default gateway as the likely PC IP
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["ip", "route", "show", "default"],
+            capture_output=True, text=True, timeout=2
+        )
+        # Output: "default via 192.168.x.x dev wlan0 ..."
+        parts = result.stdout.split()
+        if len(parts) >= 3 and parts[0] == "default":
+            gw = parts[2]
+            print(f"   [Auto] Detected gateway {gw} as backend IP. Override with BACKEND_IP env var.")
+            return gw
+    except Exception:
+        pass
+    print("   [Warn] Could not detect backend IP. Set BACKEND_IP env var.")
+    print("          Example: BACKEND_IP=192.168.1.100 python3 sensor_reader.py")
+    return "127.0.0.1"
+
+BACKEND_IP  = _find_backend_ip()
+BACKEND_URL = f"http://{BACKEND_IP}:{BACKEND_PORT}/api/sensor-data"
 POLL_INTERVAL = 1.0   # seconds between POSTs
+
 
 # MAX30102 configuration:
 # Sensor sample rate is 100Hz. The heart rate algorithm expects a 100-sample buffer
