@@ -31,35 +31,63 @@ BACKEND_PORT = os.environ.get("BACKEND_PORT", "5000")
 def _find_backend_ip() -> str:
     """
     Resolves the backend IP in this order:
-      1. BACKEND_IP environment variable (explicit override)
-      2. Auto-detect: try the default gateway (PC on same Wi-Fi)
-      3. Fallback: localhost (for testing on the same machine)
+      1. BACKEND_IP environment variable  (explicit, always wins)
+      2. Subnet scan: probe every host on the Pi's local /24 subnet for port 5000
+      3. Fallback: 127.0.0.1 with a clear error message
     """
+    import socket, subprocess, ipaddress, concurrent.futures
+
     env_ip = os.environ.get("BACKEND_IP", "")
     if env_ip and env_ip != "YOUR_PC_IP_HERE":
+        print(f"   [Config] Using BACKEND_IP={env_ip} from environment.")
         return env_ip
-    # Try to detect default gateway as the likely PC IP
+
+    # Discover the Pi's own IP on the local network
     try:
-        import subprocess
-        result = subprocess.run(
-            ["ip", "route", "show", "default"],
-            capture_output=True, text=True, timeout=2
-        )
-        # Output: "default via 192.168.x.x dev wlan0 ..."
-        parts = result.stdout.split()
-        if len(parts) >= 3 and parts[0] == "default":
-            gw = parts[2]
-            print(f"   [Auto] Detected gateway {gw} as backend IP. Override with BACKEND_IP env var.")
-            return gw
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        my_ip = s.getsockname()[0]
+        s.close()
     except Exception:
-        pass
-    print("   [Warn] Could not detect backend IP. Set BACKEND_IP env var.")
-    print("          Example: BACKEND_IP=192.168.1.100 python3 sensor_reader.py")
+        my_ip = "127.0.0.1"
+
+    # Build list of all hosts on the same /24 subnet (skip .0 and .255)
+    try:
+        network = ipaddress.IPv4Network(f"{my_ip}/24", strict=False)
+        candidates = [str(h) for h in network.hosts() if str(h) != my_ip]
+    except Exception:
+        candidates = []
+
+    port = int(BACKEND_PORT)
+
+    def _probe(ip: str) -> str | None:
+        try:
+            with socket.create_connection((ip, port), timeout=0.3):
+                return ip
+        except Exception:
+            return None
+
+    print(f"   [Auto] Pi IP={my_ip}. Scanning subnet for backend on port {port}...")
+    found = None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as pool:
+        for result in pool.map(_probe, candidates):
+            if result:
+                found = result
+                break
+
+    if found:
+        print(f"   [Auto] Found backend at {found}. Override with: BACKEND_IP=<ip> python3 sensor_reader.py")
+        return found
+
+    print(f"   [Warn] Backend not found on subnet {my_ip}/24 port {port}.")
+    print(f"          Make sure 'npm run dev' is running on your PC.")
+    print(f"          Then run: BACKEND_IP=<pc-ip> python3 raspberry_pi/sensor_reader.py")
     return "127.0.0.1"
 
 BACKEND_IP  = _find_backend_ip()
 BACKEND_URL = f"http://{BACKEND_IP}:{BACKEND_PORT}/api/sensor-data"
 POLL_INTERVAL = 1.0   # seconds between POSTs
+
 
 
 # MAX30102 configuration:
