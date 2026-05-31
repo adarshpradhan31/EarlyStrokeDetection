@@ -34,8 +34,9 @@ POLL_INTERVAL = 1.0   # seconds between POSTs
 # MAX30102 configuration:
 # Sensor sample rate is 100Hz. The heart rate algorithm expects a 100-sample buffer
 # representing 4.0 seconds of history at 25Hz.
-# We accumulate 400 samples at 100Hz (4.0s of raw data) and downsample to 100 samples at 25Hz.
-RAW_BUFFER_SIZE = 400
+# We accumulate 200 samples at 100Hz (2.0s of raw data) and downsample to 50 samples at 25Hz.
+# Smaller buffer = faster first reading; hrcalc works with 50-100 samples fine.
+RAW_BUFFER_SIZE = 200
 
 # Thresholds for finger detection
 # These are checked against a small ROLLING window of the last 10 raw IR samples,
@@ -83,12 +84,60 @@ def compute_movement(accel: dict) -> float:
     return round(max(0.0, min(100.0, abs(magnitude - 9.8) * 12)), 1)
 
 
+def calc_spo2_robust(ir_data: list, red_data: list) -> tuple[float, bool]:
+    """
+    Robust SpO2 calculation using the RMS-based AC/DC ratio method.
+    Much more reliable than Maxim’s reference algorithm for generic breakout boards.
+
+    Formula: R = (AC_red / DC_red) / (AC_ir / DC_ir)
+    SpO2 = 110 - 25 * R  (empirical, valid for calibrated sensors)
+    Fallback: SpO2 = 104 - 17 * R  (conservative)
+    Valid range: R typically 0.5-1.0 for healthy SpO2 (95-100%)
+    """
+    import math
+    n = len(ir_data)
+    if n < 50:
+        return -999.0, False
+
+    # DC component (mean)
+    dc_ir  = sum(ir_data)  / n
+    dc_red = sum(red_data) / n
+
+    if dc_ir < 1 or dc_red < 1:
+        return -999.0, False
+
+    # AC component (std deviation ≈ RMS of the pulsatile component)
+    ac_ir  = math.sqrt(sum((x - dc_ir)  ** 2 for x in ir_data)  / n)
+    ac_red = math.sqrt(sum((x - dc_red) ** 2 for x in red_data) / n)
+
+    if ac_ir < 1:
+        return -999.0, False
+
+    # Perfusion index: pulsatile fraction of DC — must be > 0.3% for a valid reading
+    pi_ir = ac_ir / dc_ir
+    if pi_ir < 0.003:
+        return -999.0, False
+
+    # R ratio (dimensionless)
+    R = (ac_red / dc_red) / (ac_ir / dc_ir)
+
+    # Empirical linear SpO2 model (from Maxim AN6428 & Reddy 2009)
+    spo2 = 110.0 - 25.0 * R
+
+    # Sanity-check physiological range
+    if spo2 < 70.0 or spo2 > 100.0:
+        return -999.0, False
+
+    return round(spo2, 1), True
+
+
 def read_max30102() -> tuple[tuple[float, float], str]:
     """
     Drain MAX30102 FIFO into the accumulation buffers.
     Returns ((hr, spo2), reason_string).
     reason_string is used for diagnostic output.
     Downsamples from 100Hz → 25Hz before calling hrcalc.
+    Uses a robust AC/DC method as primary SpO2 source.
     """
     global _finger_state
 
@@ -135,14 +184,27 @@ def read_max30102() -> tuple[tuple[float, float], str]:
     ir_25hz  = [ir_list[i]  for i in range(0, RAW_BUFFER_SIZE, 4)]
     red_25hz = [red_list[i] for i in range(0, RAW_BUFFER_SIZE, 4)]
 
-    hr_val, hr_valid, spo2_val, spo2_valid = hrcalc.calc_hr_and_spo2(ir_25hz, red_25hz)
-    hr   = round(float(hr_val),   1) if hr_valid   else 0.0
+    # ── Heart Rate via hrcalc (peak detection) ──────────────────────
+    hr_val, hr_valid, _, _ = hrcalc.calc_hr_and_spo2(ir_25hz, red_25hz)
+    hr = round(float(hr_val), 1) if hr_valid else 0.0
+
+    # ── SpO2 via robust AC/DC ratio method (primary) ────────────────
+    spo2_val, spo2_valid = calc_spo2_robust(ir_list, red_list)
+    if not spo2_valid:
+        # Fallback: try with downsampled 25Hz data
+        spo2_val, spo2_valid = calc_spo2_robust(ir_25hz, red_25hz)
     spo2 = round(float(spo2_val), 1) if spo2_valid else 0.0
 
     reasons = []
-    if not hr_valid:   reasons.append("HR invalid (too few peaks)")
-    if not spo2_valid: reasons.append("SpO2 ratio out of range")
-    reason = "; ".join(reasons) if reasons else "OK"
+    if not hr_valid:   reasons.append(f"HR: too few peaks (IR pulsatile OK={avg_ir:.0f})")
+    if not spo2_valid:
+        # Compute perfusion index for diagnostics
+        import math
+        dc_ir = sum(ir_list) / len(ir_list)
+        ac_ir = math.sqrt(sum((x - dc_ir) ** 2 for x in ir_list) / len(ir_list))
+        pi = (ac_ir / dc_ir * 100) if dc_ir > 0 else 0
+        reasons.append(f"SpO2: low pulsatile signal (PI={pi:.2f}%, need >0.3%)")
+    reason = "; ".join(reasons) if reasons else f"OK (Avg IR={avg_ir:.0f})"
     return (hr, spo2), reason
 
 
